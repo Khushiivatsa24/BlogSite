@@ -1,0 +1,8 @@
+flask db migrate- to make changes
+flask db upgrade apply the changes
+jinja 
+rendering
+sqlalchemy 
+created a database, a form, did routing 
+your brain tends to remember the patterns that's what i have realized i might think idk much which i dont but still i can connect the dots
+esp 32 temperature project dashboard 
