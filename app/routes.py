@@ -13,9 +13,19 @@ from urllib.parse import urlsplit
 
 @app.route('/')
 @app.route('/index')
-@login_required
 def index():
-    return render_template('index.html') # rendering
+    return render_template('index.html', user=current_user) #rendering
+
+@app.route('/user/<username>')
+@login_required
+def user(username):
+    user = db.first_or_404(sa.select(User).where(User.username == username))
+    posts = [
+        {'author': user, 'body': 'Test post #1'},
+        {'author': user, 'body': 'Test post #2'}
+    ]
+    return render_template('user.html', user=user, posts=posts)
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
