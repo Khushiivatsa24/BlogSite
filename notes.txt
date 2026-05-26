@@ -6,3 +6,8 @@ sqlalchemy
 created a database, a form, did routing 
 your brain tends to remember the patterns that's what i have realized i might think idk much which i dont but still i can connect the dots
 esp 32 temperature project dashboard 
+
+jinja2- templating engine for python
+{%conditional statements %} why do we need it because without it html is completly static
+
+pagination- means you limited number of stuff then next page. 
