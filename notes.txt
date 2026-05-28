@@ -11,3 +11,4 @@ jinja2- templating engine for python
 {%conditional statements %} why do we need it because without it html is completly static
 
 pagination- means you limited number of stuff then next page. 
+jwt0 json web token (verified on its own)
