@@ -12,3 +12,7 @@ jinja2- templating engine for python
 
 pagination- means you limited number of stuff then next page. 
 jwt0 json web token (verified on its own)
+flask-moment (used for js)
+ajax asynchronous javascript and xml (usually json)
+*args - collects extra positional arguments as a tuple
+**kwargs - extra keyword arguments as a dictionary
