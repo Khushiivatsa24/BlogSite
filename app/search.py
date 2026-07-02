@@ -11,7 +11,10 @@ def add_to_index(index, model):
 def remove_from_index(index, model):
     if not current_app.elasticsearch:
         return
-    current_app.elasticsearch.delete(index=index, id=model.id)
+    try:
+        current_app.elasticsearch.delete(index=index, id=model.id)
+    except Exception:
+        pass
 
 def query_index(index, query, page, per_page):
     if not current_app.elasticsearch:

@@ -1,4 +1,4 @@
-from flask import render_template, redirect, url_for, flash, request
+from flask import render_template, redirect, url_for, flash, request, current_app
 from urllib.parse import urlsplit
 from flask_login import login_user, logout_user, current_user
 import sqlalchemy as sa
@@ -52,11 +52,11 @@ def reset_password_request():
     form = ResetPasswordRequestForm()
     if form.validate_on_submit():
         user = db.session.scalar(sa.select(User).where(User.email == form.email.data))
-    if user:
-        send_password_reset_email(user)
-    flash('check your email for the instructions to reset your password')
-    return redirect(url_for('auth.login'))
-    return render_template('auth/reset_password_request.html', title='Reset password', form= form)
+        if user:
+          send_password_reset_email(user)
+        flash('check your email for the instructions to reset your password')
+        return redirect(url_for('auth.login'))
+    return render_template('auth/reset_password_request.html', title='Reset password', form=form)
 
 @bp.route('/reset_password/<token>', methods=['GET', 'POST'])
 def reset_password(token):

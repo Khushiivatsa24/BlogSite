@@ -8,8 +8,12 @@ from flask_login import UserMixin
 from hashlib import md5
 from time import time
 import jwt
-
-
+import json
+from time import time
+from flask import current_app
+from app.search import add_to_index, remove_from_index, query_index
+import redis
+import rq
 
 followers = sa.Table(
     'followers',
@@ -69,8 +73,23 @@ class User(UserMixin, db.Model):
     email: so.Mapped[str] = so.mapped_column(sa.String(120), index=True, unique=True)
 
     password_hash: so.Mapped[Optional[str]] = so.mapped_column(sa.String(256))
+    about_me: so.Mapped[Optional[str]] = so.mapped_column(sa.String(140))
+    last_seen: so.Mapped[Optional[datetime]] = so.mapped_column(sa.DateTime,default=lambda: datetime.now(timezone.utc))
+    last_message_read_time: so.Mapped[Optional[datetime]]
+    
 
     posts: so.WriteOnlyMapped['Post'] = so.relationship(back_populates='author')
+
+
+    following: so.WriteOnlyMapped['User'] = so.relationship(secondary=followers, primaryjoin=(followers.c.follower_id == id),secondaryjoin=(followers.c.followed_id == id), back_populates='followers')
+
+    followers: so.WriteOnlyMapped['User'] = so.relationship(secondary=followers, primaryjoin=(followers.c.followed_id == id),secondaryjoin=(followers.c.follower_id == id), back_populates='following')
+    message_sent: so.WriteOnlyMapped['Message'] = so.relationship(foreign_keys='Message.sender_id', back_populates='author')
+    message_received: so.WriteOnlyMapped['Message'] = so.relationship(foreign_keys='Message.recipient_id', back_populates='recipient')
+
+    notifications: so.WriteOnlyMapped['Notification'] = so.relationship(back_populates='user')
+    tasks: so.WriteOnlyMapped['Task'] = so.relationship(back_populates='user')
+
 
     def __repr__(self):
         return '<User {}>'.format(self.username)
@@ -82,12 +101,7 @@ class User(UserMixin, db.Model):
     def avatar(self, size):
         digest = md5(self.email.lower().encode('utf-8')).hexdigest()
         return f'https://www.gravatar.com/avatar/{digest}?d=identicon&s={size}'
-    about_me: so.Mapped[Optional[str]] = so.mapped_column(sa.String(140))
-    last_seen: so.Mapped[Optional[datetime]] = so.mapped_column(sa.DateTime,default=lambda: datetime.now(timezone.utc))
-
-    following: so.WriteOnlyMapped['User'] = so.relationship(secondary=followers, primaryjoin=(followers.c.follower_id == id),secondaryjoin=(followers.c.followed_id == id), back_populates='followers')
-
-    followers: so.WriteOnlyMapped['User'] = so.relationship(secondary=followers, primaryjoin=(followers.c.followed_id == id),secondaryjoin=(followers.c.follower_id == id), back_populates='following')
+   
 
     def follow(self, user):
         if not self.is_following(user):
@@ -126,16 +140,41 @@ class User(UserMixin, db.Model):
             .order_by(Post.timestamp.desc())
         )
     def get_reset_password_token(self, expires_in=600):
-        return jwt.encode({'reset_password': self.id, 'exp': time() + expires_in}, app.config['SECRET_KEY'], algorithm='HS256')
+        return jwt.encode({'reset_password': self.id, 'exp': time() + expires_in}, current_app.config['SECRET_KEY'], algorithm='HS256')
 
     @staticmethod
     def verify_reset_password_token(token):
         try:
-            id = jwt.decode('token', app.config['SECRET_KEY'], algorithms=['HS256'])['reset_password']
+            id = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])['reset_password']
         
         except:
             return 
         return db.session.get(User, id)
+    
+    def unread_message_count(self):
+        last_read_time = self.last_message_read_time or datetime(1900, 1, 1)
+        query = sa.select(Message).where(Message.recipient == self, Message.timestamp > last_read_time)
+        return db.session.scalar(sa.select(sa.func.count()).select_from(query.subquery()))
+
+    def add_notification(self, name, data):
+        db.session.execute(self.notifications.delete().where(Notification.name == name))
+        n = Notification(name=name, payload_json=json.dumps(data), user=self)
+        db.session.add(n)
+        return n
+
+    def launch_task(self, name, description, *args, **kwargs):
+        rq_job = current_app.task_queue.enqueue(f'app.tasks.{name}', self.id, *args, **kwargs)
+        task = Task(id=rq_job.id, name=name, description=description, user=self)
+        db.session.add(task)
+        return task
+    
+    def get_tasks_in_progress(self):
+        query = self.tasks.select().where(Task.complete == False)
+        return db.session.scalars(query)
+    
+    def get_task_in_progress(self, name):
+        query = self.tasks.select().where(Task.name == name, Task.complete == False)
+        return db.session.scalar(query)
 
 @login.user_loader
 def load_user(id):
@@ -156,4 +195,48 @@ class Post(SearchableMixin, db.Model):
     def __repr__(self):
         return '<Post {}>'.format(self.body)
 
+class Message(db.Model):
+    id: so.Mapped[int] = so.mapped_column(primary_key=True)
+    sender_id: so.Mapped[int] = so.mapped_column(sa.ForeignKey(User.id), index=True)
+    recipient_id: so.Mapped[int] = so.mapped_column(sa.ForeignKey(User.id), index=True)
+    body: so.Mapped[str] = so.mapped_column(sa.String(140))
+    timestamp: so.Mapped[datetime] = so.mapped_column(index=True, default=lambda: datetime.now(timezone.utc))
+    author: so.Mapped[User] = so.relationship(foreign_keys='Message.sender_id', back_populates='message_sent')
+    recipient: so.Mapped[User] = so.relationship(foreign_keys='Message.recipient_id', back_populates='message_received')
 
+
+    def __repr__(self):
+        return '<Message {}>'.format(self.body)
+
+class Notification(db.Model):
+    id: so.Mapped[int] = so.mapped_column(primary_key=True)
+    name: so.Mapped[str] = so.mapped_column(sa.String(128), index=True)
+    user_id: so.Mapped[int] = so.mapped_column(sa.ForeignKey(User.id), index=True)
+    timestamp: so.Mapped[float] = so.mapped_column(index=True, default=time)
+    payload_json: so.Mapped[str] = so.mapped_column(sa.Text)
+
+    user: so.Mapped[User] = so.relationship(back_populates='notifications')
+
+    def get_data(self):
+        return json.loads(str(self.payload_json))
+
+class Task(db.Model):
+    id: so.Mapped[str] = so.mapped_column(sa.String(36), primary_key=True)
+    name: so.Mapped[str] = so.mapped_column(sa.String(128), index=True)
+    description: so.Mapped[Optional[str]] = so.mapped_column(sa.String(128))
+    user_id: so.Mapped[int] = so.mapped_column(sa.ForeignKey(User.id))
+    complete: so.Mapped[int] = so.mapped_column(default=False)
+
+    user: so.Mapped[User] = so.relationship(back_populates='tasks')
+
+    def get_rq_job(self):
+        try:
+            rq_job = rq.job.Job.fetch(self.id, connection=current_app.redis)
+        except (redis.exceptions.RedisError, rq.exceptions.NoSuchJobError):
+            return None
+        return rq_job
+
+    def get_progress(self):
+        job = self.get_rq_job()
+        return job.meta.get('progress', 0) if job is not None else 100
+    
