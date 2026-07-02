@@ -2,6 +2,10 @@ import time
 from rq import get_current_job
 from app import create_app, db
 from app.models import User, Post, Task
+from app.email import send_email
+from flask import render_template
+import json
+import sqlalchemy as sa
 import sys
 app = create_app()
 app.app_context().push()
@@ -15,7 +19,7 @@ def example(seconds):
         print(i)
         time.sleep(1)
     job.meta['progress'] = 100
-    job.save_meta
+    job.save_meta()
     print('Task completed')
 
 def _set_task_progress(progress):
