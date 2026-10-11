@@ -1,0 +1,78 @@
+services:
+  app:
+    build: .
+    image: microblog:latest
+    ports:
+      - "3000:5000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+      - elasticsearch
+    networks:
+      - microblog-network
+
+  db:
+    image: mysql:latest
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: microblog
+      MYSQL_USER: microblog
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - microblog-network
+
+  redis:
+    image: redis:latest
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - microblog-network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    restart: always
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    networks:
+      - microblog-network
+
+  worker:
+    build: .
+    image: microblog:latest
+    restart: always
+    entrypoint: []
+    command: rq worker -u redis://redis:6379/0 microblog-tasks
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+        - microblog-network
+  
+networks:
+  microblog-network:
+    driver: bridge
+  
+volumes:
+  mysql-data:
+  es-data:
+  redis-data:
