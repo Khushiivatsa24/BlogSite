@@ -1,9 +1,9 @@
 services:
   app:
-    build: .
-    image: microblog:latest
+    image: khushii4/microblog:latest
+    restart: always
     ports:
-      - "3000:5000"
+      - "8080:5000"
     env_file:
       - .env
     depends_on:
@@ -53,8 +53,7 @@ services:
       - microblog-network
 
   worker:
-    build: .
-    image: microblog:latest
+    image: khushii4/microblog:latest
     restart: always
     entrypoint: []
     command: rq worker -u redis://redis:6379/0 microblog-tasks
